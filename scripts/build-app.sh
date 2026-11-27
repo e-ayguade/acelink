@@ -2,6 +2,7 @@
 # Builds "Ace Link.app" with only the Xcode Command Line Tools (no full Xcode needed).
 # Usage: scripts/build-app.sh            -> build/Ace Link.app
 #        scripts/build-app.sh --install  -> also copies it to /Applications
+#        ARCHS="arm64 x86_64" scripts/build-app.sh -> universal app (Apple silicon + Intel)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -13,12 +14,19 @@ VERSION="$(cat "$ROOT/VERSION")"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
-echo "Compiling…"
-find "$SRC" -name '*.swift' -print0 | xargs -0 swiftc \
-    -O -swift-version 5 \
-    -target "$(uname -m)-apple-macos13.0" \
-    -module-name AceLink \
-    -o "$APP/Contents/MacOS/Ace Link"
+ARCHS="${ARCHS:-$(uname -m)}"
+SLICES=()
+for arch in $ARCHS; do
+    echo "Compiling for ${arch}…"
+    find "$SRC" -name '*.swift' -print0 | xargs -0 swiftc \
+        -O -swift-version 5 \
+        -target "$arch-apple-macos13.0" \
+        -module-name AceLink \
+        -o "$OUT/Ace Link-$arch"
+    SLICES+=("$OUT/Ace Link-$arch")
+done
+lipo -create "${SLICES[@]}" -output "$APP/Contents/MacOS/Ace Link"
+rm -f "${SLICES[@]}"
 
 echo "Writing Info.plist…"
 sed -e 's/$(DEVELOPMENT_LANGUAGE)/en/' \
