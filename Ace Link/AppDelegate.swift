@@ -53,6 +53,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             using: detectLaunchedBundleTerminated
         )
 
+        ChannelSync.shared.start()
         showChannelsWindow(nil)
 
         if tv.isEnabled {
@@ -89,7 +90,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc
     func showChannelsWindow(_: Any?) {
-        if channelsWindow == nil {
+        if channelsWindow != nil {
+            ChannelSync.shared.syncNow() // Reopening the window picks up online edits.
+        } else {
             channelsWindow = ChannelsWindowController(actions: PlaybackActions(
                 play: { [weak self] link in self?.play(link: link) },
                 playAlongside: { [weak self] link in self?.play(link: link, alongside: true) },

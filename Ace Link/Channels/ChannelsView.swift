@@ -27,6 +27,7 @@ final class ChannelsUIState: ObservableObject {
     @Published var bulkAdd: BulkAddTarget?
     @Published var channelPendingDelete: Channel?
     @Published var showTVPanel = false
+    @Published var showSyncPanel = false
 }
 
 struct ChannelsView: View {
@@ -34,6 +35,7 @@ struct ChannelsView: View {
     @ObservedObject var status: PlaybackStatus
     @ObservedObject var checker = LinkChecker.shared
     @ObservedObject var tv = TVShare.shared
+    @ObservedObject var sync = ChannelSync.shared
     let actions: PlaybackActions
 
     @StateObject private var ui = ChannelsUIState()
@@ -51,6 +53,7 @@ struct ChannelsView: View {
                         status: status,
                         checker: checker,
                         actions: actions,
+                        readOnly: sync.isEnabled,
                         onPlay: actions.play,
                         onEditChannel: { ui.editingChannel = channel },
                         onEditLink: { ui.editingLink = $0 },
@@ -65,6 +68,18 @@ struct ChannelsView: View {
             }
         }
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    ui.showSyncPanel.toggle()
+                } label: {
+                    Label("Sync", systemImage: syncSymbol)
+                        .foregroundColor(syncColor)
+                }
+                .help("Download your channels from a file you keep online")
+                .popover(isPresented: $ui.showSyncPanel, arrowEdge: .bottom) {
+                    SyncPanel(sync: sync)
+                }
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     ui.showTVPanel.toggle()
@@ -88,6 +103,7 @@ struct ChannelsView: View {
             ChannelEditor(
                 channel: channel,
                 isNew: store.channel(id: channel.id) == nil,
+                nameLocked: sync.isEnabled,
                 onSave: { saved in
                     store.upsert(saved)
                     ui.selection = saved.id
@@ -138,6 +154,19 @@ struct ChannelsView: View {
         .frame(minWidth: 640, minHeight: 400)
     }
 
+    private var syncSymbol: String {
+        if case .failed = sync.state { return "exclamationmark.icloud" }
+        return sync.isEnabled ? "icloud.fill" : "icloud"
+    }
+
+    private var syncColor: Color {
+        switch sync.state {
+        case .synced: return .green
+        case .failed: return .orange
+        default: return .primary
+        }
+    }
+
     private var tvColor: Color {
         switch tv.state {
         case .on: return .green
@@ -161,34 +190,52 @@ struct ChannelsView: View {
                 .padding(.vertical, 3)
                 .tag(channel.id)
                 .contextMenu {
-                    Button("Edit Channel…") { ui.editingChannel = channel }
-                    Button("Add Link…") {
-                        ui.editingLink = LinkEditTarget(
-                            channelID: channel.id, link: LinkEditor.draftFromClipboard(), isNew: true
-                        )
+                    Button(sync.isEnabled ? "Edit Icon…" : "Edit Channel…") {
+                        ui.editingChannel = channel
                     }
-                    Button("Add Links in Bulk…") { ui.bulkAdd = BulkAddTarget(id: channel.id) }
+                    if !sync.isEnabled {
+                        Button("Add Link…") {
+                            ui.editingLink = LinkEditTarget(
+                                channelID: channel.id, link: LinkEditor.draftFromClipboard(), isNew: true
+                            )
+                        }
+                        Button("Add Links in Bulk…") { ui.bulkAdd = BulkAddTarget(id: channel.id) }
+                    }
                     Button("Check Availability") { actions.checkAvailability(channel.id) }
                         .disabled(channel.links.isEmpty || checker.isRunning || status.isBusy)
-                    Divider()
-                    Button("Delete Channel…") { ui.channelPendingDelete = channel }
+                    if !sync.isEnabled {
+                        Divider()
+                        Button("Delete Channel…") { ui.channelPendingDelete = channel }
+                    }
                 }
             }
-            .onMove(perform: store.moveChannels)
+            .onMove(perform: sync.isEnabled ? nil : store.moveChannels)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             HStack {
-                Button {
-                    ui.editingChannel = Channel(name: "")
-                } label: {
-                    Label("New Channel", systemImage: "plus")
+                if sync.isEnabled {
+                    Button {
+                        ui.showSyncPanel = true
+                    } label: {
+                        Label("Edited online", systemImage: "icloud")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundColor(.secondary)
+                    .help("Sync is on: add and edit channels in your online file")
+                } else {
+                    Button {
+                        ui.editingChannel = Channel(name: "")
+                    } label: {
+                        Label("New Channel", systemImage: "plus")
+                    }
+                    .buttonStyle(.borderless)
                 }
-                .buttonStyle(.borderless)
                 Spacer()
             }
             .padding(10)
         }
         .onDeleteCommand {
+            guard !sync.isEnabled else { return }
             if let channel = store.channel(id: ui.selection) { ui.channelPendingDelete = channel }
         }
     }
@@ -200,7 +247,11 @@ struct ChannelsView: View {
                 .foregroundColor(.secondary)
             Text(store.channels.isEmpty ? "No channels yet" : "Select a channel")
                 .font(.title2)
-            if store.channels.isEmpty {
+            if store.channels.isEmpty, sync.isEnabled {
+                Text("Sync is on. Add channels to your online file, then Sync Now.")
+                    .foregroundColor(.secondary)
+                Button("Open Sync Settings") { ui.showSyncPanel = true }
+            } else if store.channels.isEmpty {
                 Text("Create a channel, then add one or more AceStream links to it.")
                     .foregroundColor(.secondary)
                 Button("New Channel") { ui.editingChannel = Channel(name: "") }
@@ -220,6 +271,7 @@ struct ChannelDetailView: View {
     @ObservedObject var status: PlaybackStatus
     @ObservedObject var checker: LinkChecker
     let actions: PlaybackActions
+    var readOnly = false
     let onPlay: (StreamLink) -> Void
     let onEditChannel: () -> Void
     let onEditLink: (LinkEditTarget) -> Void
@@ -232,11 +284,16 @@ struct ChannelDetailView: View {
             if channel.links.isEmpty {
                 VStack(spacing: 10) {
                     Text("No links in this channel").font(.title3)
-                    Text("Add an AceStream link (hash, acestream:// or magnet:).")
-                        .foregroundColor(.secondary)
-                    HStack {
-                        Button("Add Link", action: addLink)
-                        Button("Add in Bulk…", action: onBulkAdd)
+                    if readOnly {
+                        Text("Add links to this channel in your online file.")
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text("Add an AceStream link (hash, acestream:// or magnet:).")
+                            .foregroundColor(.secondary)
+                        HStack {
+                            Button("Add Link", action: addLink)
+                            Button("Add in Bulk…", action: onBulkAdd)
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -260,27 +317,31 @@ struct ChannelDetailView: View {
                             Button("Play") { onPlay(link) }
                             Button("Play Alongside") { actions.playAlongside(link) }
                                 .disabled(status.playingLinkIDs.isEmpty || status.isBusy)
-                            Button("Edit Link…") {
-                                onEditLink(
-                                    LinkEditTarget(channelID: channel.id, link: link, isNew: false)
-                                )
+                            if !readOnly {
+                                Button("Edit Link…") {
+                                    onEditLink(
+                                        LinkEditTarget(channelID: channel.id, link: link, isNew: false)
+                                    )
+                                }
                             }
                             Button("Copy Link") {
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(link.url, forType: .string)
                             }
-                            Divider()
-                            Button("Delete Link") {
-                                store.delete(linkID: link.id, in: channel.id)
+                            if !readOnly {
+                                Divider()
+                                Button("Delete Link") {
+                                    store.delete(linkID: link.id, in: channel.id)
+                                }
                             }
                         }
                     }
-                    .onMove { store.moveLinks(in: channel.id, from: $0, to: $1) }
-                    .onDelete { offsets in
+                    .onMove(perform: readOnly ? nil : { store.moveLinks(in: channel.id, from: $0, to: $1) })
+                    .onDelete(perform: readOnly ? nil : { offsets in
                         for index in offsets {
                             store.delete(linkID: channel.links[index].id, in: channel.id)
                         }
-                    }
+                    })
                 }
                 .listStyle(.inset)
             }
@@ -298,13 +359,15 @@ struct ChannelDetailView: View {
             }
             Spacer()
             checkButton
-            Button("Edit", action: onEditChannel)
-            Button("Add in Bulk…", action: onBulkAdd)
-                .keyboardShortcut("l", modifiers: [.command, .shift])
-            Button(action: addLink) {
-                Label("Add Link", systemImage: "plus")
+            Button(readOnly ? "Edit Icon" : "Edit", action: onEditChannel)
+            if !readOnly {
+                Button("Add in Bulk…", action: onBulkAdd)
+                    .keyboardShortcut("l", modifiers: [.command, .shift])
+                Button(action: addLink) {
+                    Label("Add Link", systemImage: "plus")
+                }
+                .keyboardShortcut("l")
             }
-            .keyboardShortcut("l")
         }
         .padding(16)
     }

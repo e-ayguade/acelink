@@ -18,6 +18,16 @@ Ace Link now opens a window where you can organize your streams:
 
 - **Share to TV**: the TV button in the toolbar (or "Share to TV" in the menu bar menu) serves all your channels as a playlist at `http://<your-mac-ip>:8765/acelink.m3u`. Add it once in an IPTV app on your TV (tested with m3u-ip.tv on a Samsung TV). While it's on, the AceStream engine keeps running and the Mac doesn't sleep. Playing on the Mac uses the same engine, so the TV keeps playing. Reserve your Mac's IP in your router so the address doesn't change. Links that were red in the last availability check are left out of the TV playlist (switch this off in the TV panel).
 
+- **Sync online**: keep your channels in a JSON file in a private GitHub repo and edit them there (free). Click the cloud button in the toolbar, paste the file's address (`https://github.com/you/repo/blob/main/channels.json`) and an access code: a fine-grained GitHub token that can only read that one repo (Contents → Read-only). Ace Link downloads the file when it starts, when you reopen the window, every 15 minutes, and with Sync Now. While sync is on, channels and links are edited in the file, so the add, edit and delete buttons are hidden. Channel icons stay on the Mac. "Copy My Channels as JSON" gives you a starting file. Format:
+
+  ```json
+  [
+    { "name": "Sports", "links": ["acestream://…", { "name": "HD", "url": "acestream://…" }] }
+  ]
+  ```
+
+  Any other address works too: Ace Link sends the access code as `Authorization: Bearer <code>`. The address and code are saved in `~/Library/Application Support/Ace Link/sync.json`, readable only by your user.
+
 Channels are saved in `~/Library/Application Support/Ace Link/channels.json`. The menu bar icon still works as before, and closing the window keeps Ace Link running in the menu bar.
 
 ### Building without Xcode

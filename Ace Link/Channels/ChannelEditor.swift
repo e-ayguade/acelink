@@ -45,13 +45,16 @@ final class ChannelDraft: ObservableObject {
 struct ChannelEditor: View {
     @StateObject private var draft: ChannelDraft
     let isNew: Bool
+    /// While sync is on, the name comes from the online file.
+    let nameLocked: Bool
     let onSave: (Channel) -> Void
     let onCancel: () -> Void
 
-    init(channel: Channel, isNew: Bool, onSave: @escaping (Channel) -> Void,
-         onCancel: @escaping () -> Void) {
+    init(channel: Channel, isNew: Bool, nameLocked: Bool = false,
+         onSave: @escaping (Channel) -> Void, onCancel: @escaping () -> Void) {
         _draft = StateObject(wrappedValue: ChannelDraft(channel: channel))
         self.isNew = isNew
+        self.nameLocked = nameLocked
         self.onSave = onSave
         self.onCancel = onCancel
     }
@@ -83,6 +86,8 @@ struct ChannelEditor: View {
                 TextField("Channel name", text: $draft.channel.name)
                     .textFieldStyle(.roundedBorder)
                     .font(.title3)
+                    .disabled(nameLocked)
+                    .help(nameLocked ? "Rename the channel in your online file" : "")
             }
 
             Picker("Icon", selection: $draft.kind) {
