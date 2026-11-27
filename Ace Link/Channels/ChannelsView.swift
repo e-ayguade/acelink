@@ -28,6 +28,7 @@ final class ChannelsUIState: ObservableObject {
     @Published var channelPendingDelete: Channel?
     @Published var showTVPanel = false
     @Published var showSyncPanel = false
+    let syncForm = SyncForm(sync: ChannelSync.shared)
 }
 
 struct ChannelsView: View {
@@ -77,7 +78,7 @@ struct ChannelsView: View {
                 }
                 .help("Download your channels from a file you keep online")
                 .popover(isPresented: $ui.showSyncPanel, arrowEdge: .bottom) {
-                    SyncPanel(sync: sync)
+                    SyncPanel(sync: sync, form: ui.syncForm)
                 }
             }
             ToolbarItem(placement: .primaryAction) {

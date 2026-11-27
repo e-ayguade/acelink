@@ -1,5 +1,7 @@
 import SwiftUI
 
+/// What's typed in the sync panel. Owned by the window, not the popover, so it
+/// survives the popover closing when it loses focus (e.g. to copy the token).
 final class SyncForm: ObservableObject {
     @Published var url: String
     @Published var token: String
@@ -14,13 +16,8 @@ final class SyncForm: ObservableObject {
 /// Toolbar popover: where the channel list is downloaded from, and the access code.
 struct SyncPanel: View {
     @ObservedObject var sync: ChannelSync
+    @ObservedObject var form: SyncForm
     @ObservedObject var store = ChannelStore.shared
-    @StateObject private var form: SyncForm
-
-    init(sync: ChannelSync) {
-        self.sync = sync
-        _form = StateObject(wrappedValue: SyncForm(sync: sync))
-    }
 
     private var formChanged: Bool {
         form.url.trimmingCharacters(in: .whitespacesAndNewlines) != sync.url ||
@@ -121,6 +118,7 @@ struct SyncPanel: View {
         }
         .padding(16)
         .frame(width: 440)
+        .onAppear { form.copied = false }
     }
 
     @ViewBuilder
